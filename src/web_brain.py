@@ -217,8 +217,14 @@ def _extract_constraints(task_text: str) -> list[str]:
     avoid_patterns = re.findall(r'\bavoid\s+(\w+)', task_text, re.IGNORECASE)
     free_patterns = re.findall(r'(\w+)-free\b', task_text, re.IGNORECASE)
     without_patterns = re.findall(r'\bwithout\s+(\w+)', task_text, re.IGNORECASE)
-    constraints.extend(no_patterns + avoid_patterns + free_patterns + without_patterns)
-    return list(set(c.lower() for c in constraints))
+    # "do NOT want a X", "NOT want X", "don't want X coffee"
+    not_want_patterns = re.findall(
+        r'\b(?:not|don.t)\s+want\s+(?:a\s+|an\s+)?(\w+)', task_text, re.IGNORECASE
+    )
+    constraints.extend(no_patterns + avoid_patterns + free_patterns + without_patterns + not_want_patterns)
+    # Filter generic stop words that aren't real constraint attributes
+    stop_words = {"any", "the", "a", "an", "to", "be", "it", "one", "that", "this", "my", "me"}
+    return list(set(c.lower() for c in constraints if c.lower() not in stop_words))
 
 
 def _extract_mcp_uri(task_data: Any) -> str | None:
@@ -370,8 +376,6 @@ async def _prime(task_text: str, task_data: Any, mcp_url: str, session_id: str) 
         )
     if user_history:
         header_parts.append(f"USER HISTORY: {user_history}")
-    # Force immediate tool use — prevent planning-text on first turn
-    header_parts.append("\nACTION: Call search_products NOW with relevant keywords. Do not write text first.")
     task_header = "\n".join(header_parts)
 
     return {
@@ -499,6 +503,9 @@ async def _execute(
         }
         if anthropic_tools:
             kwargs["tools"] = anthropic_tools
+            # Turn 1: force a real tool call — prevents planning-text / pseudo-XML responses
+            if turn == 1 and not force_checkout:
+                kwargs["tool_choice"] = {"type": "any"}
 
         try:
             response = client.messages.create(**kwargs)
