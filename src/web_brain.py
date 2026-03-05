@@ -257,12 +257,13 @@ _SEQUENCE_HINTS: dict[str, str] = {
         "5. checkout_ → complete"
     ),
     "negative_constraints": (
-        "CONSTRAINT-SAFE SHOPPING SEQUENCE:\n"
-        "1. search_ → find candidates\n"
-        "2. view_ or details_ → READ ingredient/attribute list carefully\n"
-        "3. VERIFY: none of the forbidden attributes are present\n"
-        "4. ONLY add_ items that pass the constraint check\n"
-        "5. checkout_"
+        "CONSTRAINT-SAFE SHOPPING SEQUENCE — START WITH TOOL CALL:\n"
+        "Step 1: CALL search_products NOW with product keywords\n"
+        "Step 2: CALL view_product on promising results — check material/attributes list carefully\n"
+        "Step 3: VERIFY in the view_product result that the FORBIDDEN attribute is NOT present\n"
+        "Step 4: CALL add_to_cart ONLY for items that pass the constraint check\n"
+        "Step 5: CALL checkout to complete\n"
+        "NEVER add an item without first calling view_product to check its attributes."
     ),
     "budget_management": (
         "BUDGET-TRACKING SHOPPING SEQUENCE:\n"
@@ -274,24 +275,27 @@ _SEQUENCE_HINTS: dict[str, str] = {
 }
 
 # ── System prompts ────────────────────────────────────────────────────────────
-_SHOPPING_SYSTEM_PROMPT = """You are an expert shopping assistant navigating an online store.
+_SHOPPING_SYSTEM_PROMPT = """You are an expert shopping assistant navigating an online store using MCP tools.
+
+**CRITICAL: Your FIRST action MUST be a tool call. Do NOT write text before calling a tool.**
+Do not describe what you will do. Just do it. Call search_products immediately.
 
 AVAILABLE TOOLS (prefixes indicate purpose):
-- search_* : Search for products. Returns product list with IDs.
-- click_* / view_* : View product details OR perform actions (add to cart, remove, etc.)
-- checkout_* / buy_* : Finalize purchase. MUST be called to complete the task.
+- search_products : Search for products by query, price, category. Use this FIRST.
+- view_product : View full product details including materials, specs, price.
+- add_to_cart : Add chosen product to cart.
+- checkout : Finalize purchase. MUST be called to complete the task.
+- view_cart, remove_from_cart, compare_products : Cart management.
 
 SHOPPING RULES:
-1. Parse goal clearly: what product(s), budget, hard constraints
-2. Search with specific keywords (include brand, size, color if mentioned)
-3. Read product details — verify price, attributes satisfy ALL constraints
+1. IMMEDIATELY call search_products — never explain first, just search
+2. View product details to verify constraints BEFORE adding to cart
+3. Hard constraints CANNOT be violated — verify material/attributes in view_product result
 4. Select BEST match: within budget, satisfies all hard constraints
 5. Add to cart, then ALWAYS call checkout to complete
-6. Budget: NEVER exceed the stated limit (track running total for multi-item tasks)
-7. Hard constraints (no nuts, gluten-free, etc.) CANNOT be violated under any circumstances
+6. Budget: NEVER exceed the stated limit
 
-After completing, respond with:
-{"reasoning": "why you chose this product", "summary": "task completed: [product] for $X"}"""
+After checkout, give a brief summary: product chosen, price, why it satisfies constraints."""
 
 _ERROR_RECOVERY_PROMPT = """You are correcting a shopping cart that contains mistakes.
 
@@ -366,6 +370,8 @@ async def _prime(task_text: str, task_data: Any, mcp_url: str, session_id: str) 
         )
     if user_history:
         header_parts.append(f"USER HISTORY: {user_history}")
+    # Force immediate tool use — prevent planning-text on first turn
+    header_parts.append("\nACTION: Call search_products NOW with relevant keywords. Do not write text first.")
     task_header = "\n".join(header_parts)
 
     return {
