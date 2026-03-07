@@ -178,10 +178,11 @@ docker run -e ANTHROPIC_API_KEY=sk-ant-... \
 ## Tech Stack
 
 - **Runtime:** Python 3.11 · FastAPI · uvicorn
-- **LLM:** Claude Haiku (navigation, DAAO fast path) · Sonnet (shopping, constraint reasoning)
+- **LLM:** claude-haiku-4-5-20251001 (navigation, DAAO fast path) · claude-sonnet-4-6 (shopping, constraint reasoning)
 - **Budget tracking:** Deterministic regex (not LLM-estimated)
 - **Constraint enforcement:** Deterministic string matching (not LLM-based)
 - **Architecture:** BrainOS PRIME / EXECUTE / REFLECT
+- **Core library:** [brainos-core-light](https://github.com/abhishec/brainoscorelight) — shared primitives (Brain, Router, UCB1, RL)
 - **RL:** Case log (JSON) · quality scoring · RL primer injection
 - **Protocol:** A2A JSON-RPC 2.0
 
