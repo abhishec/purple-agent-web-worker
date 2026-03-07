@@ -36,6 +36,15 @@ import anthropic
 from src.config import ANTHROPIC_API_KEY, MAIN_MODEL, FAST_MODEL, LLM_TIMEOUT, MAX_TURNS, MAX_SEARCH_ROUNDS
 from src.mcp_bridge import discover_tools, call_tool
 
+# BrainOS Core Light primitives
+try:
+    from brainos_core import DAAO as _CoreDAOO, RecoveryCascade, CheckoutContract
+    _daao = _CoreDAOO(fast_model=FAST_MODEL, main_model=MAIN_MODEL)
+    _HAS_CORE = True
+except ImportError:
+    _HAS_CORE = False
+    _daao = None
+
 # ── RL case log ───────────────────────────────────────────────────────────────
 _RL_DIR = Path(os.environ.get("RL_CACHE_DIR", "/app"))
 _CASE_LOG = _RL_DIR / "web_case_log.json"
@@ -152,10 +161,9 @@ def _select_model(category: str, task_text: str, has_tools: bool) -> str:
     if any(k in text_lower for k in complex_kw):
         return MAIN_MODEL
 
-    # Simple single-item without constraints → Haiku can handle it
-    words = task_text.split()
-    if len(words) < 20 and category not in ("budget_management",) and not has_tools:
-        return FAST_MODEL
+    # Fall through to core DAAO for general keyword/length routing
+    if _daao is not None:
+        return _daao.route(task_text)
 
     # Default: Sonnet for shopping (checkout requires precision)
     return MAIN_MODEL
@@ -556,16 +564,21 @@ async def _execute(
                 if any(k in tool_name for k in ("search", "find", "query")):
                     search_turns += 1
                     last_search_result = result_text
-                    # Recovery: if empty result and haven't retried yet
-                    if ("no results" in result_text.lower() or
-                            "not found" in result_text.lower() or
-                            len(result_text) < 30) and search_turns <= MAX_SEARCH_ROUNDS:
-                        print(f"[web] recovery: empty search — broadening query")
-                        # Inject recovery note into result
-                        result_text += (
-                            "\n[RECOVERY HINT: Search returned no results. "
-                            "Try broader keywords — remove brand/color/size qualifiers and retry.]"
-                        )
+                    # Recovery cascade via core (or inline fallback)
+                    if search_turns <= MAX_SEARCH_ROUNDS:
+                        if _HAS_CORE:
+                            enriched = RecoveryCascade.check(result_text)
+                            if enriched != result_text:
+                                print(f"[web] recovery: empty search — broadening query")
+                            result_text = enriched
+                        elif ("no results" in result_text.lower() or
+                                "not found" in result_text.lower() or
+                                len(result_text) < 30):
+                            print(f"[web] recovery: empty search — broadening query")
+                            result_text += (
+                                "\n[RECOVERY HINT: Search returned no results. "
+                                "Try broader keywords — remove brand/color/size qualifiers and retry.]"
+                            )
 
                 # Deterministic price accumulation
                 if any(k in tool_name for k in ("add", "cart", "buy")):
@@ -708,7 +721,15 @@ async def run_web_task(
           f"spent=${budget_spent:.2f}, violated={constraint_violated}")
     # Fix: pass session_id properly through reflect
     # (L2 retry uses conversation, not direct execute call — no session needed)
-    if not checkout_done and prime_ctx["has_tools"]:
+    # L2 Checkout Contract via core (or inline fallback)
+    checkout_satisfied = (
+        CheckoutContract.satisfied([t for msg in conversation
+                                    for block in (msg.get("content") or [])
+                                    if isinstance(block, dict) and block.get("type") == "tool_use"
+                                    for t in [block.get("name", "")]])
+        if _HAS_CORE else checkout_done
+    )
+    if not checkout_satisfied and prime_ctx["has_tools"]:
         # Direct L2 checkout retry (correct session_id)
         print(f"[web/L2] checkout contract — injecting retry")
         answer2, conversation, extra_tools, checkout_done, extra_spend, extra_viol = await _execute(
