@@ -182,7 +182,12 @@ docker run -e ANTHROPIC_API_KEY=sk-ant-... \
 - **Budget tracking:** Deterministic regex (not LLM-estimated)
 - **Constraint enforcement:** Deterministic string matching (not LLM-based)
 - **Architecture:** BrainOS PRIME / EXECUTE / REFLECT
-- **Core library:** [brainos-core-light](https://github.com/abhishec/brainoscorelight) — shared primitives (Brain, Router, UCB1, RL)
+- **Core library:** [brainos-core-light](https://github.com/abhishec/brainoscorelight) v0.3.0
+  - `DAAO` — zero-LLM model routing (Haiku navigation, Sonnet shopping)
+  - `CheckoutContract` — L2 mechanical checkout enforcement
+  - `SequenceHints` — prefix-based tool-call directives (shopping/booking/navigate)
+  - `RecoveryCascade` — automatic empty-result recovery
+  - `Brain` + `Router` — UCB1 strategy bandit + 5-layer memory
 - **RL:** Case log (JSON) · quality scoring · RL primer injection
 - **Protocol:** A2A JSON-RPC 2.0
 
